@@ -77,7 +77,7 @@ class AsyncCosyVoice2:
             async for model_output in self.model.async_tts(**model_input, stream=stream, speed=speed):
                 speech_len = model_output['tts_speech'].shape[1] / self.sample_rate
                 logging.info('yield speech len {}, rtf {}, time cost: {}'.format(speech_len, (time.time() - start_time) / speech_len, (time.time() - start_time)))
-                yield model_output
+                yield model_output, (time.time() - start_time)
                 start_time = time.time()
 
     async def inference_cross_lingual(self, tts_text, prompt_speech_16k, stream=False, speed=1.0, text_frontend=True):
@@ -102,7 +102,7 @@ class AsyncCosyVoice2:
             async for model_output in self.model.async_tts(**model_input, stream=stream, speed=speed):
                 speech_len = model_output['tts_speech'].shape[1] / self.sample_rate
                 logging.info('yield speech len {}, rtf {}'.format(speech_len, (time.time() - start_time) / speech_len))
-                yield model_output
+                yield model_output, (time.time() - start_time)
                 start_time = time.time()
 
     async def inference_instruct2(self, tts_text, instruct_text, prompt_speech_16k, stream=False, speed=1.0, text_frontend=True):
@@ -139,6 +139,6 @@ class AsyncCosyVoice2:
                 speech_len = model_output['tts_speech'].shape[1] / self.sample_rate
                 logging.info('yield speech index:{}, len {:.2f}, rtf {:.3f},  cost {:.3f}s,  all cost time {:.3f}s'.format(
                     chunk_index, speech_len,  (time.time()-last_time)/speech_len, time.time()-last_time, time.time()-start_time))
-                yield model_output
+                yield model_output, (time.time() - start_time)
                 last_time = time.time()
                 chunk_index += 1

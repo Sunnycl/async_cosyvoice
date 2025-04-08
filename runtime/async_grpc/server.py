@@ -176,19 +176,19 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
                         "目前流式下，只支持每帧返回一个独立的音频文件(is_frame_independent must be True)，" +
                         "如果需要不同的数据格式，请使用request.format=None返回原始torch.Tensor数据在客户端处理。")
             if request.format in {"", "pcm"}:
-                async for model_chunk in processor(*processor_args):
+                async for model_chunk, pack_time in processor(*processor_args):
                     audio_bytes = await asyncio.to_thread(
                         convert_audio_tensor_to_bytes,
                         model_chunk['tts_speech'], request.format
                     )
-                    yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format)
+                    yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, pack_time=pack_time)
             # TODO: 需要在第一帧添加文件头信息，后续的帧直接返回音频数据
             # 在保存音频时，以便使用追加模式写入同一个文件，同时可以使用支持流式播放的音频播放器进行播放。
 
         else:
             # 服务端合并音频数据后，再编码返回一个完整的音频文件
             audio_data: torch.Tensor = None
-            async for model_chunk in processor(*processor_args):
+            async for model_chunk, pack_time in processor(*processor_args):
                 if audio_data is not None:
                     audio_data = torch.concat([audio_data, model_chunk['tts_speech']], dim=1)
                 else:
@@ -198,7 +198,7 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
                 convert_audio_tensor_to_bytes,
                 audio_data, request.format
             )
-            yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format)
+            yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, pack_time=pack_time)
 
 async def serve(args):
     options = [
