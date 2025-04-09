@@ -33,7 +33,7 @@ class AsyncCosyVoice2:
         if not os.path.exists(model_dir):
             model_dir = snapshot_download(model_dir)
         with open('{}/cosyvoice2.yaml'.format(model_dir), 'r') as f:
-            configs = load_hyperpyyaml(f, overrides={'model_path': model_dir})
+            configs = load_hyperpyyaml(f, overrides={'qwen_pretrain_path': model_dir})
         self.frontend = CosyVoiceFrontEnd(configs['get_tokenizer'],
                                           configs['feat_extractor'],
                                           '{}/campplus.onnx'.format(model_dir),
