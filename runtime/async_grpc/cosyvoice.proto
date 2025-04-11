@@ -56,4 +56,5 @@ message instruct2BySpkIdRequest {
 message Response {
   bytes tts_audio = 1;
   string format = 2;
+  float frist_pack_time = 3;
 }

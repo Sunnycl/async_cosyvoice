@@ -181,7 +181,7 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
                         convert_audio_tensor_to_bytes,
                         model_chunk['tts_speech'], request.format
                     )
-                    yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, pack_time=pack_time)
+                    yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, frist_pack_time=pack_time)
             # TODO: 需要在第一帧添加文件头信息，后续的帧直接返回音频数据
             # 在保存音频时，以便使用追加模式写入同一个文件，同时可以使用支持流式播放的音频播放器进行播放。
 
@@ -198,7 +198,7 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
                 convert_audio_tensor_to_bytes,
                 audio_data, request.format
             )
-            yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, pack_time=pack_time)
+            yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, frist_pack_time=pack_time)
 
 async def serve(args):
     options = [
