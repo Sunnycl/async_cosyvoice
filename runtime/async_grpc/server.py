@@ -267,10 +267,3 @@ if __name__ == '__main__':
     main(args)
 
     # python server.py --load_jit --load_trt --fp16
-
-"""
-python client.py --mode register_spk --spk_id register_audio  --prompt_wav /mnt3/litaisong.lts/data/instruct_data/emotion/prompts/magic_data_prompt_wavs/G0435_0_S0008.wav --prompt_text " " 
-
-python client.py --mode instruct2_by_spk_id --spk_id register_audio  --format "" --input_file /mnt3/litaisong.lts/data/instruct_data/emotion/raw/text/to_be_syn_1w.txt --max_conc 8  --instruct_text "你能用恐惧的情感说吗？" --output_path /root/output
-
-"""
