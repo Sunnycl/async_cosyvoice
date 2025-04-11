@@ -14,6 +14,7 @@ import argparse
 import cosyvoice_pb2
 import cosyvoice_pb2_grpc
 import grpc
+import torchaudio
 from grpc import aio
 
 logging.basicConfig(
@@ -161,17 +162,38 @@ async def main(args):
 def run_async_main(args):
     asyncio.run(main(args))
 
-import multiprocessing
-def multiprocess_main(args, max_conc):
-    multiprocessing.set_start_method('spawn', force=True)
-    processes = []
-    for _ in range(max_conc):
-        p = multiprocessing.Process(target=run_async_main, args=(args,))
-        p.start()
-        processes.append(p)
+from argparse import Namespace
 
-    for p in processes:
-        p.join()
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+def multiprocess_main(args):
+    max_conc = args.max_conc
+    
+    all_text = []
+    with open(args.input_file, 'r') as f:
+        for line in f:
+            all_text.append(line.strip())
+    
+    with ProcessPoolExecutor(max_workers=max_conc) as executor:
+        requests = []
+        for i, text in enumerate(all_text):
+            clone_args = Namespace(**args.__dict__)
+            clone_args.tts_text = text
+            clone_args.output_path = f"{args.output_path}_{i}.wav"
+            requests.append(clone_args)
+            
+        futures = [executor.submit(run_async_main, request) for request in requests]
+        for future in as_completed(futures):
+            future.result()
+
+async def register_spk(args):
+    async with aio.insecure_channel(f"{args.host}:{args.port}") as channel:
+        stub = cosyvoice_pb2_grpc.CosyVoiceStub(channel)
+        audio_bytes, sr = torchaudio.load(args.prompt_wav)
+        audio_bytes = audio_bytes.numpy().tobytes()
+        future = stub.RegisterSpk(cosyvoice_pb2.RegisterSpkRequest(spk_id=args.spk_id, prompt_text=args.prompt_text, prompt_audio_bytes=audio_bytes, ori_sample_rate=sr))
+        response = await future
+        logging.info(f"RegisterSpk response: {response}")
 
 
 if __name__ == "__main__":
@@ -180,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument('--port', type=int, default=50000)
     parser.add_argument('--mode', default='zero_shot_by_spk_id',
                         choices=['sft', 'zero_shot', 'cross_lingual', 'instruct2',
-                                 'instruct2_by_spk_id', 'zero_shot_by_spk_id'],
+                                 'instruct2_by_spk_id', 'zero_shot_by_spk_id', 'register_spk'],
                         help='Request mode')
     parser.add_argument('--stream_input', action="store_true", help="是否流式输入，用于双工流式")
     parser.add_argument('--stream', action='store_true', help='是否流式输出')
@@ -195,11 +217,18 @@ if __name__ == "__main__":
     parser.add_argument('--instruct_text', type=str, default='使用四川话说')
     parser.add_argument('--output_path', type=str, default='demo.wav', help='输出音频的文件名')
     parser.add_argument('--target_sr', type=int, default=24000, help='输出音频的目标采样率 cosyvoice2 为 24000')
+    parser.add_argument('--max_conc', type=int, default=4, help='最大并发数')
+    parser.add_argument('--input_file', type=str, default='', help='输入文件路径')
     args = parser.parse_args()
 
-    # 运行异步主函数
-    asyncio.run(main(args))
-
-    # multiprocess_main(args, 16)
+    if args.mode == 'register_spk':
+        asyncio.run(register_spk(args))
+    else:
+        if args.input_file:
+            multiprocess_main(args)
+        else:
+            asyncio.run(main(args))
 
     # python client.py --mode zero_shot_by_spk_id --spk_id 001 --stream_input --tts_text 你好，请问有什么可以帮您的吗？ --format "" --stream
+    # 1502, 4299, 6486, 6486, 4299, 4299, 4299, 4299, 3984, 1803, 3666, 4387, 6563, 6232, 73, 3563, 5668, 1920, 2166, 676, 1703, 1703, 8, 2555, 4578, 4440, 6379, 5400, 4412, 1881, 4311, 515, 515, 2136, 2166, 2620, 5995, 6076, 5348, 4376, 38, 740, 749, 747, 1461, 4299, 6486, 6486, 6486, 6486, 6486, 6486, 6486, 4299
+    # 1490, 4299, 4299, 4299, 4299, 4299, 4299, 1951, 3903, 3669, 1476, 5186, 5842, 3647, 3691, 3798, 79, 1294, 1293, 2023, 3481, 1683, 2112, 1188, 2999, 1463, 737, 2546, 4848, 4614, 4272, 6379, 3195, 2252, 442, 2130, 2124, 599, 2810, 2175, 2166, 2620, 5266, 5185, 5105, 2927, 2927, 1467, 2028, 4299, 4299, 4299, 4299, 6486, 6486, 4218
