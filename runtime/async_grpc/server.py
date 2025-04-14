@@ -205,7 +205,7 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
 
         else:
             # 服务端合并音频数据后，再编码返回一个完整的音频文件
-            async for model_chunk in processor(*processor_args):
+            async for model_chunk, pack_time in processor(*processor_args):
                 audio_bytes = await asyncio.to_thread(
                     convert_audio_tensor_to_bytes,
                     model_chunk['tts_speech'], request.format
