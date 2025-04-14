@@ -205,11 +205,10 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
 
         else:
             # 服务端合并音频数据后，再编码返回一个完整的音频文件
-            audio_data: torch.Tensor = None
             async for model_chunk in processor(*processor_args):
                 audio_bytes = await asyncio.to_thread(
                     convert_audio_tensor_to_bytes,
-                    audio_data, request.format
+                    model_chunk['tts_speech'], request.format
                 )
                 yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format)
 
@@ -257,7 +256,7 @@ if __name__ == '__main__':
     parser.add_argument('--port', type=int, default=50000)
     parser.add_argument('--max_conc', type=int, default=4)
     parser.add_argument('--model_dir', type=str,
-                        default='../../../pretrained_models/CosyVoice2-0.5B',
+                        default='../../../pretrained_models/CosyVoice2-0.5B-sft',
                         help='local path or modelscope repo id')
     parser.add_argument('--load_jit', action='store_true', help='load jit model')
     parser.add_argument('--load_trt', action='store_true', help='load tensorrt model')
