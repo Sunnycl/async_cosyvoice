@@ -52,14 +52,14 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
         try:
             logging.info(f"RegisterSpk request: {request.spk_id}")
 
-            audio_bytes = await asyncio.to_thread(
+            audio_data = await asyncio.to_thread(
                 convert_audio_bytes_to_tensor,
                 request.prompt_audio_bytes
             )
             if request.ori_sample_rate != 16000:
-                audio_bytes = torchaudio.functional.resample(audio_bytes, request.ori_sample_rate, 16000)
+                audio_data = torchaudio.functional.resample(audio_data, request.ori_sample_rate, 16000)
 
-            self.cosyvoice.frontend.generate_spk_info(request.spk_id, request.prompt_text, audio_bytes)
+            self.cosyvoice.frontend.generate_spk_info(request.spk_id, request.prompt_text, audio_data, self.cosyvoice.sample_rate)
             return cosyvoice_pb2.RegisterSpkResponse(status=cosyvoice_pb2.RegisterSpkResponse.Status.OK, registered_spk_id=request.spk_id)
         except Exception as e:
             logging.error(f"RegisterSpk failed: {str(e)}", exc_info=True)
@@ -210,7 +210,8 @@ class CosyVoiceServiceImpl(cosyvoice_pb2_grpc.CosyVoiceServicer):
                     convert_audio_tensor_to_bytes,
                     model_chunk['tts_speech'], request.format
                 )
-                yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format)
+                yield cosyvoice_pb2.Response(tts_audio=audio_bytes, format=request.format, frist_pack_time=pack_time)
+
 
 async def serve(args):
     options = [
@@ -220,7 +221,7 @@ async def serve(args):
     server = aio.server(
         migration_thread_pool=futures.ThreadPoolExecutor(max_workers=args.max_conc),
         options=options,
-        maximum_concurrent_rpcs=args.max_conc
+        maximum_concurrent_rpcs=args.max_conc*10
     )
     cosyvoice_pb2_grpc.add_CosyVoiceServicer_to_server(CosyVoiceServiceImpl(args), server)
     server.add_insecure_port(f'0.0.0.0:{args.port}')
@@ -254,7 +255,7 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--port', type=int, default=50000)
-    parser.add_argument('--max_conc', type=int, default=4)
+    parser.add_argument('--max_conc', type=int, default=10)
     parser.add_argument('--model_dir', type=str,
                         default='../../../pretrained_models/CosyVoice2-0.5B-sft',
                         help='local path or modelscope repo id')
@@ -265,3 +266,4 @@ if __name__ == '__main__':
     main(args)
 
     # python server.py --load_jit --load_trt --fp16
+

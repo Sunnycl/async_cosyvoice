@@ -19,7 +19,6 @@ from functools import partial
 from collections import OrderedDict
 from typing import Generator, Optional, AsyncGenerator, Union, Callable
 
-import librosa
 import onnxruntime
 import torch
 import numpy as np
@@ -30,6 +29,7 @@ import torchaudio.compliance.kaldi as kaldi
 from pydantic import BaseModel, ConfigDict
 
 from async_cosyvoice.config import OVERWRITE_NORMALIZER_CACHE
+from async_cosyvoice.config import REGISTER_SPK_INFO_DICT
 
 try:
     import ttsfrd
@@ -175,8 +175,6 @@ class LRUCache(OrderedDict):
                 self.popitem(last=False)
         super().__setitem__(key, value)
 
-from async_cosyvoice.config import REGISTER_SPK_INFO_DICT
-
 class CosyVoiceFrontEnd:
 
     def __init__(self,
@@ -194,16 +192,20 @@ class CosyVoiceFrontEnd:
         option.intra_op_num_threads = 1
         self.campplus_session = onnxruntime.InferenceSession(campplus_model, sess_options=option, providers=["CUDAExecutionProvider" if torch.cuda.is_available() else
                                                                                 "CPUExecutionProvider"])
+        self.campplus_session = onnxruntime.InferenceSession(campplus_model, sess_options=option, providers=["CUDAExecutionProvider" if torch.cuda.is_available() else
+                                                                                "CPUExecutionProvider"])
         self.speech_tokenizer_session = onnxruntime.InferenceSession(speech_tokenizer_model, sess_options=option,
                                                                      providers=["CUDAExecutionProvider" if torch.cuda.is_available() else
                                                                                 "CPUExecutionProvider"])
 
         self.spk2info = LRUCache(max_size=10000)
 
+
         if os.path.exists(spk2info):
             spk_infos = torch.load(spk2info, map_location=self.device, weights_only=False)
             for spk_id, info in spk_infos.items():
                 self.spk2info[spk_id] = info
+
 
         self.spk2info_path = os.path.join(os.path.dirname(os.path.abspath(spk2info)), 'spk2info')
         os.makedirs(self.spk2info_path, exist_ok=True)
@@ -223,18 +225,22 @@ class CosyVoiceFrontEnd:
 
         if REGISTER_SPK_INFO_DICT:
             for spk_id, info in REGISTER_SPK_INFO_DICT.items():
-                prompt_text = info['prompt_text']
-                prompt_audio_path = info['prompt_audio_path']
-                if not os.path.exists(prompt_audio_path):
-                    logging.error(f"doesn't exist prompt_audio_path: {prompt_audio_path}")
-                    continue
-                logging.info(f"Generate spk_info for {spk_id}....")
-                prompt_audio, sr = torchaudio.load(prompt_audio_path)
-                prompt_audio = prompt_audio
-                if sr != 16000:
-                    prompt_audio = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(prompt_audio)
-                self.generate_spk_info(spk_id, prompt_text, prompt_audio)
-                logging.info(f"Generate spk_info for {spk_id} success!")
+                try:
+                    prompt_text = info['prompt_text']
+                    prompt_audio_path = info['prompt_audio_path']
+                    if not os.path.exists(prompt_audio_path):
+                        logging.error(f"doesn't exist prompt_audio_path: {prompt_audio_path}")
+                        continue
+                    logging.info(f"Generate spk_info for {spk_id}....")
+                    prompt_audio, sr = torchaudio.load(prompt_audio_path)
+                    prompt_audio = prompt_audio
+                    if sr != 16000:
+                        prompt_audio = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)(prompt_audio)
+                    self.generate_spk_info(spk_id, prompt_text, prompt_audio, self.feat_extractor.sampling_rate)  # noqa
+                    logging.info(f"Generate spk_info for {spk_id} success!")
+                except Exception as e:
+                    logging.error(f"Generate spk_info for {spk_id} failed!")
+                    logging.error(e)
 
     def _extract_text_token(self, text):
         if isinstance(text, Generator):
