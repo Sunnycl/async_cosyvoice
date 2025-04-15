@@ -51,7 +51,7 @@ class AsyncCosyVoice2:
             fp16
         )
         self.model.load(
-            '{}/flow.cache.pt'.format(model_dir),
+            '{}/flow.pt'.format(model_dir),
             '{}/hift.pt'.format(model_dir),
         )
         if load_jit:
