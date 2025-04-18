@@ -44,15 +44,16 @@ from cosyvoice.utils.frontend_utils import contains_chinese, replace_blank, repl
 
 
 class AsyncTextGeneratorWrapper:
-    def __init__(self, obj):
+    def __init__(self, obj, frd):
         self.obj = obj
         self.is_async_generator = isinstance(obj, AsyncGenerator)
         self.str_num = 0
         self.min_str_num = 30
-        self.split_threshold = 30
+        self.split_threshold = 15
         self.buffer = ""  # 用于存储未发送的文本
         self.finished = False
         self._len = 1
+        self.frd = frd
 
     def __len__(self):
         return self._len
@@ -61,7 +62,7 @@ class AsyncTextGeneratorWrapper:
         if max_split_len is None:
             max_split_len = self.split_threshold
         """在文本中找到合适的分割点"""
-        split_chars = {'。', '！', '？', '.', '!', '?', '，', '、', '；', ';', ','}
+        split_chars = {'。', '！', '？', '.', '!', '?', '，', '、', '；', ';', ',', ':', '：'}
         for i, t in enumerate(text):
             if t in split_chars:
                 return i
@@ -69,6 +70,64 @@ class AsyncTextGeneratorWrapper:
                 # 如果超过最大分割长度，则返回当前位置，强制分隔
                 return i
         return -1
+
+    def _normalize_text(self, text):
+        """对输入文本进行预处理"""
+        if not text:
+            return text
+        logging.info(f"normalize text: {text}")
+        try:
+            response = self.frd.do_voicegen_frd(text)
+            if not response:
+                logging.warning("voicegen_frd returned None or empty string.")
+                return text
+
+            data = json.loads(response)
+            sentences = data.get("sentences")
+            
+            # if not sentences:
+            #     logging.warning("No 'sentences' in response.")
+            #     return text
+
+            texts = [i["text"] for i in sentences if "text" in i]
+            text = ''.join(texts)
+            logging.info(f"after normalize text: {text}")
+            return text
+
+        except Exception as e:
+            logging.exception(f"Exception in _normalize_text: {e}")
+            return text
+        
+    async def _async_generator_v2(self):
+        """异步生成器，处理文本分块, 对于token级别的输入，缓存到一定子句长度再返回"""
+        while True:
+            split_pos = self._find_split_point(self.buffer)
+            # 查找到标点符号时，返回第一个子句
+            if split_pos >= 0:
+                yield self._normalize_text(self.buffer[:split_pos+1])
+                self.buffer = self.buffer[split_pos+1:]
+            else:
+                # 如果长度超过阈值，则强制进行切分
+                if len(self.buffer) > self.split_threshold:
+                    yield self._normalize_text(self.buffer[:self.split_threshold])
+                    self.buffer = self.buffer[self.split_threshold:]
+            # 长度小于阈值且没有找到标点符号，则等待新数据
+            next_chunk = ""
+            try:
+                if self.is_async_generator:
+                    next_chunk = await self.obj.__anext__()
+                else:
+                    next_chunk = self.obj.__next__()
+                self.buffer += next_chunk
+            except (StopIteration, StopAsyncIteration):
+                self.finished = True
+            except Exception as e:
+                raise f"Error in AsyncTextGeneratorWrapper: {e}"
+            
+            # 完成时将剩余返回
+            if self.finished:
+                yield self._normalize_text(self.buffer + next_chunk)
+                return
 
     async def _async_generator(self):
         """异步生成器，处理文本分块"""
@@ -138,7 +197,7 @@ class AsyncTextGeneratorWrapper:
         """同步生成器"""
         while not self.finished:
             # 返回异步生成器
-            yield self._async_generator()
+            yield self._async_generator_v2()
             # self._len += 1
 
 class SpeakerInfo(BaseModel):
@@ -259,6 +318,7 @@ class CosyVoiceFrontEnd:
 
     async def _async_extract_text_token_generator(self, text_generator):
         async for text in text_generator:
+            logging.info(f"传入模型前的文本: {text}")
             text_token, _ = self._extract_text_token(text)
             for i in range(text_token.shape[1]):
                 yield text_token[:, i: i + 1]
@@ -298,10 +358,14 @@ class CosyVoiceFrontEnd:
         speech_feat_len = torch.tensor([speech_feat.shape[1]], dtype=torch.int32).to(self.device)
         return speech_feat, speech_feat_len
 
+    async def async_text_normalize(self, text):
+        async for chunk in AsyncTextGeneratorWrapper(text, frd=self.frd):
+                yield chunk
+
     def text_normalize(self, text, split=True, text_frontend=True):
         if isinstance(text, Union[Generator, AsyncGenerator]):
             logging.info('get tts_text generator, will skip text_normalize!')
-            return AsyncTextGeneratorWrapper(text)
+            return AsyncTextGeneratorWrapper(text, self.frd)
 
         if text_frontend is False:
             return [text] if split is True else text
